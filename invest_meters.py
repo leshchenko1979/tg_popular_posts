@@ -35,7 +35,7 @@ client = supabase.create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE
 fs = supabasefs.SupabaseTableFileSystem(client, "sessions")
 scanner = Scanner(fs=fs, chat_cache=False)
 
-Msg = namedtuple("Message", "username link reach reactions")
+Msg = namedtuple("Message", "username link reach reactions datetime text")
 
 results = []
 
@@ -67,6 +67,8 @@ async def collect_stats(channel) -> int:
                 link=msg.link,
                 reach=msg.views or 0,
                 reactions=reactions,
+                datetime=msg.date,
+                text=msg.text,
             )
         )
 
@@ -113,7 +115,7 @@ if st.button("Собрать"):
 
     popular_posts = (
         msgs.sort_values("popularity", ascending=False)
-        .groupby("username")[["username", "link", "popularity"]]
+        .groupby("username")[["username", "text", "link", "popularity"]]
         .head(5)
     )
 
