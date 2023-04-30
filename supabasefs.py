@@ -15,17 +15,23 @@ class SupabaseTableFileSystem:
     def __setitem__(self, path, value):
         self.table.upsert({"key": path, "value": value}).execute()
 
-    def keys(self):
-        return self.ls()
+    def __delitem__(self, path):
+        self.table.delete().eq("key", path).execute()
 
-    def ls(self, *args):
+    def keys(self):
         return [
             next(iter(item.values()))
             for item in self.table.select("key").execute().data
         ]
 
+    def ls(self, *args):
+        return self.keys()
+
     def exists(self, path):
-        return path in self.ls()
+        return path in self
+
+    def rm(self, path):
+        del self[path]
 
     def glob(self, path):
         return [
@@ -35,6 +41,9 @@ class SupabaseTableFileSystem:
             .execute()
             .data
         ]
+
+    def touch(self, path):
+        self[path] = ""
 
     @contextlib.contextmanager
     def open(self, path, mode=None):

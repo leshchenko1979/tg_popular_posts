@@ -6,6 +6,7 @@ from typing import AsyncIterable
 import pyrogram
 from icontract import ensure, require
 from tqdm import tqdm
+from fsspec import AbstractFileSystem
 
 from account import Account
 from chat_cache import ChatCache, ChatCacheItem
@@ -14,7 +15,7 @@ from chat_cache import ChatCache, ChatCacheItem
 class Scanner:
     """Выполняет запросы к телеграму, используя коллекцию аккаунтов."""
 
-    def __init__(self, /, fs, phones: list[str] = None, chat_cache=True):
+    def __init__(self, /, fs: AbstractFileSystem, phones: list[str] = None, chat_cache=True):
         self.fs = fs
         self.phones = phones or [
             item.split(".session")[0] for item in fs.glob("*.session")
@@ -46,6 +47,11 @@ class Scanner:
 
     @contextlib.asynccontextmanager
     async def session(self, pbar: tqdm = None):
+        if self.fs.exists(".session_lock"):
+            raise RuntimeError("Sessions already in use")
+
+        self.fs.touch(".session_lock")
+
         await self.start_sessions()
 
         self.pbar = pbar
@@ -60,6 +66,8 @@ class Scanner:
 
             if self.chat_cache:
                 self.chat_cache.save()
+
+            self.fs.rm(".session_lock")
 
     async def get_chat(self, chat_id) -> pyrogram.types.Chat:
         if not self.chat_cache:
