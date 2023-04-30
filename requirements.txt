@@ -1,6 +1,7 @@
-supabase
-streamlit
-pyrogram
-tgcrypto
+icontract
 orjson
+pyrogram
+streamlit
 stqdm
+supabase
+tgcrypto
