@@ -11,39 +11,63 @@ from stqdm import stqdm as tqdm
 import load_env
 import supabasefs
 
-
-def get_or_create_eventloop():
-    try:
-        return asyncio.get_event_loop()
-    except RuntimeError as ex:
-        if "There is no current event loop in thread" in str(ex):
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            return asyncio.get_event_loop()
-
-
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
 from scanner import Scanner
 
-st.title("Подборка статистики для Инвеcт-мэтров")
-
 LIMIT_HISTORY = dt.timedelta(days=30)  # насколько лезть вглубь чата
-
-client = supabase.create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_KEY"])
-fs = supabasefs.SupabaseTableFileSystem(client, "sessions")
-scanner = Scanner(fs=fs, chat_cache=False)
 
 Msg = namedtuple("Message", "username link reach reactions datetime text")
 
 results = []
 
-list_of_dicts = client.table("channels").select("username").execute().data
-channels = {item["username"] for item in list_of_dicts}
 
-st.subheader("Каналы")
-channels
+def main():
+    st.title("Подборка статистики для Инвеcт-мэтров")
+
+    prepare()
+
+    st.subheader("Каналы")
+    channels
+
+    st.subheader("Статистика охватов и голоса")
+
+    if st.button("Собрать"):
+        with st.spinner("Собираем статистику, можно пойти покурить..."):
+            asyncio.run(collect_all_stats(channels))
+
+        msgs = pd.DataFrame(results)
+
+        stats = calc_stats(msgs)
+        stats
+
+        total_reach = stats.reach.sum()
+        st.metric("Общий охват", total_reach)
+
+        print_popular_posts(msgs)
+
+
+def prepare():
+    global scanner, channels
+
+    client = supabase.create_client(
+        os.environ["SUPABASE_URL"], os.environ["SUPABASE_KEY"]
+    )
+    fs = supabasefs.SupabaseTableFileSystem(client, "sessions")
+    scanner = Scanner(fs=fs, chat_cache=False)
+
+    list_of_dicts = client.table("channels").select("username").execute().data
+    channels = {item["username"] for item in list_of_dicts}
+
+
+async def collect_all_stats(channels) -> list:
+    with tqdm(total=len(channels)) as pbar:
+        async with scanner.session(pbar):
+            for channel in channels:
+                pbar.set_postfix_str(channel)
+                results.extend(await collect_stats(channel))
+                pbar.update()
 
 
 async def collect_stats(channel) -> int:
@@ -86,31 +110,7 @@ def calc_stats(msgs: pd.DataFrame):
     return stats.sort_values("reach", ascending=False).reset_index()
 
 
-async def collect_all_stats(channels) -> list:
-    with tqdm(total=len(channels)) as pbar:
-        async with scanner.session(pbar):
-            for channel in channels:
-                pbar.set_postfix_str(channel)
-                results.extend(await collect_stats(channel))
-                pbar.update()
-
-
-st.subheader("Статистика охватов и голоса")
-
-if st.button("Собрать"):
-    with st.spinner("Собираем статистику, можно пойти покурить..."):
-        asyncio.run(collect_all_stats(channels))
-
-    msgs = pd.DataFrame(results)
-    stats = calc_stats(msgs)
-    stats
-
-    total_reach = stats.reach.sum()
-    st.metric("Общий охват", total_reach)
-
-    def make_clickable(url):
-        return f'<a target="_blank" href="{url}">ссылка</a>'
-
+def print_popular_posts(msgs):
     popular_posts = (
         msgs.sort_values("popularity", ascending=False)
         .groupby("username")[["username", "text", "link", "popularity"]]
@@ -120,3 +120,10 @@ if st.button("Собрать"):
     popular_posts["link"] = popular_posts["link"].apply(make_clickable)
     st.subheader("Популярные посты")
     st.write(popular_posts.to_html(escape=False), unsafe_allow_html=True)
+
+
+def make_clickable(url):
+    return f'<a target="_blank" href="{url}">ссылка</a>'
+
+
+main()
