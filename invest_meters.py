@@ -103,8 +103,6 @@ if st.button("Собрать"):
 
     msgs = pd.DataFrame(results)
     stats = calc_stats(msgs)
-    stats.to_clipboard()
-
     stats
 
     total_reach = stats.reach.sum()
