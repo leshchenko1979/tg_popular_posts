@@ -1,0 +1,6 @@
+supabase
+streamlit
+pyrogram
+tgcrypto
+orjson
+stqdm
