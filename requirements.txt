@@ -1,3 +1,4 @@
+cloudpickle
 fsspec
 icontract
 orjson
