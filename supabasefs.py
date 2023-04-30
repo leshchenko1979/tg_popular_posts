@@ -24,6 +24,9 @@ class SupabaseTableFileSystem:
             for item in self.table.select("key").execute().data
         ]
 
+    def __contains__(self, path):
+        return path in self.keys()
+
     def ls(self, *args):
         return self.keys()
 

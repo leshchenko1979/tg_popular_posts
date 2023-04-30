@@ -125,5 +125,7 @@ def print_popular_posts(msgs):
 def make_clickable(url):
     return f'<a target="_blank" href="{url}">ссылка</a>'
 
-
-main()
+try:
+    main()
+except RuntimeError:
+    st.error("Кто-то другой использует приложение. Попробуйте через пару минут.")

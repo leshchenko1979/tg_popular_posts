@@ -47,10 +47,11 @@ class Scanner:
 
     @contextlib.asynccontextmanager
     async def session(self, pbar: tqdm = None):
-        if self.fs.exists(".session_lock"):
-            raise RuntimeError("Sessions already in use")
+        SESSION_LOCK = ".session_lock"
+        if self.fs.exists(SESSION_LOCK):
+            raise RuntimeError("Sessions are already in use")
 
-        self.fs.touch(".session_lock")
+        self.fs.touch(SESSION_LOCK)
 
         await self.start_sessions()
 
@@ -67,7 +68,7 @@ class Scanner:
             if self.chat_cache:
                 self.chat_cache.save()
 
-            self.fs.rm(".session_lock")
+            self.fs.rm(SESSION_LOCK)
 
     async def get_chat(self, chat_id) -> pyrogram.types.Chat:
         if not self.chat_cache:
