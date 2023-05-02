@@ -34,31 +34,40 @@ def main():
     st.subheader("Статистика охватов и голоса")
 
     if not loaded_stats.empty:
-        st.caption("История охватов")
-        fig = px.line(
-            loaded_stats,
-            x="created_at",
-            y=["reach"],
-            color="username",
-            labels={"created_at": "Дата"},
-        )
-        st.plotly_chart(fig)
+        chart("История охватов", "reach")
+        chart("История подписчиков", "subscribers")
 
     if st.button("Собрать свежую статистику", type="primary"):
-        with st.spinner("Собираем статистику, можно пойти покурить..."):
-            msg_stats, channel_stats = asyncio.run(collect_all_stats(channels))
+        collect_stats_and_posts()
 
-        msgs_df = pd.DataFrame(msg_stats)
-        channels_df = pd.DataFrame(channel_stats)
 
-        stats = calc_stats(msgs_df, channels_df)
-        save_stats(stats)
-        stats
+def collect_stats_and_posts():
+    with st.spinner("Собираем статистику, можно пойти покурить..."):
+        msg_stats, channel_stats = asyncio.run(collect_all_stats(channels))
 
-        total_reach = stats.reach.sum()
-        st.metric("Общий охват", total_reach)
+    msgs_df = pd.DataFrame(msg_stats)
+    channels_df = pd.DataFrame(channel_stats)
 
-        print_popular_posts(msgs_df)
+    stats = calc_stats(msgs_df, channels_df)
+    save_stats(stats)
+    stats
+
+    total_reach = stats.reach.sum()
+    st.metric("Общий охват", total_reach)
+
+    print_popular_posts(msgs_df)
+
+
+def chart(caption, y):
+    st.caption(caption)
+    fig = px.line(
+        loaded_stats,
+        x="created_at",
+        y=y,
+        color="username",
+        labels={"created_at": "Дата"},
+    )
+    st.plotly_chart(fig)
 
 
 def prepare():
@@ -165,8 +174,10 @@ def print_popular_posts(msgs):
 def make_clickable(url):
     return f'<a target="_blank" href="{url}">ссылка</a>'
 
+
 def shorten(text, max_length=200):
     return text[:max_length] + "..." if len(text) > max_length else text
+
 
 try:
     main()
