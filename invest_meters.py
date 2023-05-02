@@ -4,6 +4,7 @@ import os
 from collections import namedtuple
 
 import pandas as pd
+import plotly.express as px
 import streamlit as st
 import supabase
 from stqdm import stqdm as tqdm
@@ -19,8 +20,7 @@ from scanner import Scanner
 LIMIT_HISTORY = dt.timedelta(days=30)  # насколько лезть вглубь чата
 
 Msg = namedtuple("Message", "username link reach reactions datetime text")
-
-results = []
+Channel = namedtuple("Channel", "username subscribers")
 
 
 def main():
@@ -33,23 +33,36 @@ def main():
 
     st.subheader("Статистика охватов и голоса")
 
+    if not loaded_stats.empty:
+        st.caption("История охватов")
+        fig = px.line(
+            loaded_stats,
+            x="created_at",
+            y=["reach"],
+            color="username",
+            labels={"created_at": "Дата"},
+        )
+        st.plotly_chart(fig)
+
     if st.button("Собрать"):
         with st.spinner("Собираем статистику, можно пойти покурить..."):
-            asyncio.run(collect_all_stats(channels))
+            msg_stats, channel_stats = asyncio.run(collect_all_stats(channels))
 
-        msgs = pd.DataFrame(results)
+        msgs_df = pd.DataFrame(msg_stats)
+        channels_df = pd.DataFrame(channel_stats)
 
-        stats = calc_stats(msgs)
+        stats = calc_stats(msgs_df, channels_df)
+        save_stats(stats)
         stats
 
         total_reach = stats.reach.sum()
         st.metric("Общий охват", total_reach)
 
-        print_popular_posts(msgs)
+        print_popular_posts(msgs_df)
 
 
 def prepare():
-    global scanner, channels
+    global scanner, channels, loaded_stats, client
 
     client = supabase.create_client(
         os.environ["SUPABASE_URL"], os.environ["SUPABASE_KEY"]
@@ -60,17 +73,28 @@ def prepare():
     list_of_dicts = client.table("channels").select("username").execute().data
     channels = {item["username"] for item in list_of_dicts}
 
+    loaded_stats = pd.DataFrame(client.table("stats").select("*").execute().data)
+    loaded_stats["created_at"] = pd.to_datetime(loaded_stats["created_at"])
 
-async def collect_all_stats(channels) -> list:
+
+async def collect_all_stats(channels) -> tuple[list[Msg], list[Channel]]:
+    msg_stats = []
+    channel_stats = []
+
     with tqdm(total=len(channels)) as pbar:
         async with scanner.session(pbar):
             for channel in channels:
                 pbar.set_postfix_str(channel)
-                results.extend(await collect_stats(channel))
+
+                msg_stats.extend(await collect_msg_stats(channel))
+                channel_stats.append(await collect_channel_stats(channel))
+
                 pbar.update()
 
+    return msg_stats, channel_stats
 
-async def collect_stats(channel) -> int:
+
+async def collect_msg_stats(channel) -> Msg:
     msgs = []
 
     async for msg in scanner.get_chat_history(
@@ -99,15 +123,30 @@ async def collect_stats(channel) -> int:
     return msgs
 
 
-def calc_stats(msgs: pd.DataFrame):
-    stats = msgs.groupby("username").agg({"reach": "mean"})
+async def collect_channel_stats(channel) -> Channel:
+    chat = await scanner.get_chat(channel)
+
+    return Channel(username=channel, subscribers=chat.members_count)
+
+
+def calc_stats(msg_df: pd.DataFrame, channel_df: pd.DataFrame):
+    stats = msg_df.groupby("username").agg({"reach": "mean"})
     stats["reach_percent_of_mean"] = stats["reach"] / stats["reach"].mean() * 100
     stats["votes"] = stats.reach / stats.reach.sum() * 100
-    msgs["popularity"] = msgs.reactions / msgs.reach
+    msg_df["popularity"] = msg_df.reactions / msg_df.reach
+
+    stats["subscribers"] = channel_df.set_index("username")["subscribers"]
+
     for col in ["reach", "reach_percent_of_mean", "votes"]:
         stats[col] = pd.to_numeric(stats[col].round(), downcast="integer")
 
     return stats.sort_values("reach", ascending=False).reset_index()
+
+
+def save_stats(stats: pd.DataFrame):
+    client.table("stats").insert(
+        stats[["username", "reach", "subscribers"]].to_dict("records")
+    ).execute()
 
 
 def print_popular_posts(msgs):
@@ -124,6 +163,7 @@ def print_popular_posts(msgs):
 
 def make_clickable(url):
     return f'<a target="_blank" href="{url}">ссылка</a>'
+
 
 try:
     main()

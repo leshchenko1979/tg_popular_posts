@@ -2,6 +2,7 @@ cloudpickle
 fsspec
 icontract
 orjson
+plotly
 pyrogram
 streamlit
 stqdm
