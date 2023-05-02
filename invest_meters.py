@@ -44,7 +44,7 @@ def main():
         )
         st.plotly_chart(fig)
 
-    if st.button("Собрать"):
+    if st.button("Собрать свежую статистику", type="primary"):
         with st.spinner("Собираем статистику, можно пойти покурить..."):
             msg_stats, channel_stats = asyncio.run(collect_all_stats(channels))
 
