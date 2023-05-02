@@ -157,6 +157,7 @@ def print_popular_posts(msgs):
     )
 
     popular_posts["link"] = popular_posts["link"].apply(make_clickable)
+    popular_posts["text"] = popular_posts["text"].apply(shorten)
     st.subheader("Популярные посты")
     st.write(popular_posts.to_html(escape=False), unsafe_allow_html=True)
 
@@ -164,6 +165,8 @@ def print_popular_posts(msgs):
 def make_clickable(url):
     return f'<a target="_blank" href="{url}">ссылка</a>'
 
+def shorten(text, max_length=200):
+    return text[:max_length] + "..." if len(text) > max_length else text
 
 try:
     main()
