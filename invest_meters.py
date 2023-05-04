@@ -58,20 +58,15 @@ def prepare():
 
 
 def display_historical_stats():
-    global loaded_stats
-
-    last_stats = loaded_stats[loaded_stats.created_at == loaded_stats.created_at.max()]
-    loaded_stats = (
+    chart_df = (
         loaded_stats.set_index(["created_at", "username"])
         .stack()
         .reset_index()
         .rename(columns={"level_2": "metric", 0: "value"})
     )
 
-    show_metrics(last_stats)
-
     fig = px.line(
-        loaded_stats,
+        chart_df,
         x="created_at",
         y="value",
         facet_row="metric",
@@ -83,6 +78,22 @@ def display_historical_stats():
     fig.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
     fig.update_layout(plot_bgcolor="#202020")
     st.plotly_chart(fig, use_container_width=True)
+
+    max_datetime: dt.datetime = loaded_stats.created_at.max()
+    last_stats = loaded_stats[loaded_stats.created_at == max_datetime]
+    del last_stats["created_at"]
+
+    calc_reach_percent_and_votes(last_stats)
+    show_metrics(last_stats)
+    last_stats
+
+    delta = dt.datetime.now(tz=dt.timezone.utc) - max_datetime
+    if delta > dt.timedelta(days=30):
+        st.caption(f"Собрано {max_datetime.date()}")
+    elif delta > dt.timedelta(days=1):
+        st.caption(f"Собрана {delta.days} дней назад")
+    else:
+        st.caption(f"Собрана {delta.seconds // 3600} часов назад")
 
 
 def show_metrics(stats):
@@ -102,11 +113,13 @@ def collect_fresh_stats_and_posts():
     msgs_df = pd.DataFrame(msg_stats)
     channels_df = pd.DataFrame(channel_stats)
 
-    stats = calc_stats(msgs_df, channels_df)
+    calc_msg_popularity(msgs_df)
+    stats = collect_stats_to_single_df(msgs_df, channels_df)
     save_stats(stats)
-    stats
 
     show_metrics(stats)
+    calc_reach_percent_and_votes(stats)
+    stats
 
     print_popular_posts(msgs_df)
 
@@ -163,16 +176,23 @@ async def collect_channel_stats(channel) -> Channel:
     return Channel(username=channel, subscribers=chat.members_count)
 
 
-def calc_stats(msg_df: pd.DataFrame, channel_df: pd.DataFrame):
-    stats = msg_df.groupby("username").agg({"reach": "mean"})
-    stats["reach_percent_of_mean"] = stats["reach"] / stats["reach"].mean() * 100
-    stats["votes"] = stats.reach / stats.reach.sum() * 100
+def calc_msg_popularity(msg_df: pd.DataFrame):
     msg_df["popularity"] = msg_df.reactions / msg_df.reach
 
-    stats["subscribers"] = channel_df.set_index("username")["subscribers"]
+    return msg_df
 
-    for col in ["reach", "reach_percent_of_mean", "votes"]:
-        stats[col] = pd.to_numeric(stats[col].round(), downcast="integer")
+
+def collect_stats_to_single_df(msg_df: pd.DataFrame, channel_df: pd.DataFrame):
+    stats = msg_df.groupby("username").agg({"reach": "mean"}).astype(int)
+    stats["subscribers"] = channel_df.set_index("username")["subscribers"]
+    stats.reset_index(inplace=True)
+
+    return stats
+
+
+def calc_reach_percent_and_votes(stats: pd.DataFrame):
+    stats["reach_percent_of_mean"] = stats["reach"] * 100 // stats["reach"].mean()
+    stats["votes"] = stats.reach * 100 // stats.reach.sum()
 
     return stats.sort_values("reach", ascending=False).reset_index()
 
