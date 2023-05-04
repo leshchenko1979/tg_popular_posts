@@ -104,8 +104,9 @@ def display_historical_stats():
 def calc_reach_percent_and_votes(stats: pd.DataFrame):
     stats["reach_percent_of_mean"] = stats["reach"] * 100 // stats["reach"].mean()
     stats["votes"] = stats.reach * 100 // stats.reach.sum()
+    stats = stats.sort_values("reach", ascending=False).reset_index()
 
-    return stats.sort_values("reach", ascending=False).reset_index()
+    return stats
 
 
 def display_stats(stats):
