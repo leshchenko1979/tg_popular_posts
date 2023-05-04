@@ -192,7 +192,7 @@ async def collect_msg_stats(channel) -> Msg:
                 reach=msg.views or 0,
                 reactions=reactions,
                 datetime=msg.date,
-                text=msg.text,
+                text=msg.text or msg.caption,
             )
         )
 
