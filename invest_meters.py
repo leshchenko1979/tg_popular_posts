@@ -22,13 +22,18 @@ LIMIT_HISTORY = dt.timedelta(days=30)  # насколько лезть вглу�
 Msg = namedtuple("Message", "username link reach reactions datetime text")
 Channel = namedtuple("Channel", "username subscribers")
 
+scanner: Scanner
+channels: set[str]
+loaded_stats: pd.DataFrame
+client: supabase.Client
 
 def main():
     st.title("Подборка статистики для Инвеcт-мэтров")
 
     global scanner, channels, loaded_stats, client
 
-    scanner, channels, loaded_stats, client = prepare()
+    scanner, client = prepare_resources()
+    channels, loaded_stats = load_data()
 
     st.subheader("Каналы")
     channels
@@ -42,13 +47,18 @@ def main():
 
 
 @st.cache_resource(show_spinner="Подготовка...")
-def prepare():
+def prepare_resources():
     client = supabase.create_client(
         os.environ["SUPABASE_URL"], os.environ["SUPABASE_KEY"]
     )
     fs = supabasefs.SupabaseTableFileSystem(client, "sessions")
     scanner = Scanner(fs=fs, chat_cache=False)
 
+    return [scanner, client]
+
+
+@st.cache_data(show_spinner="Загружаем историческую статистику", ttl=60)
+def load_data():
     list_of_dicts = client.table("channels").select("username").execute().data
     channels = {item["username"] for item in list_of_dicts}
 
@@ -57,7 +67,7 @@ def prepare():
         loaded_stats["created_at"], utc=True
     ).dt.tz_convert("Europe/Moscow")
 
-    return [scanner, channels, loaded_stats, client]
+    return [channels, loaded_stats]
 
 
 def display_historical_stats():
@@ -221,9 +231,8 @@ def collect_stats_to_single_df(msg_df: pd.DataFrame, channel_df: pd.DataFrame):
 
 
 def save_stats(stats: pd.DataFrame):
-    client.table("stats").insert(
-        stats[["username", "reach", "subscribers"]].to_dict("records")
-    ).execute()
+    data = stats[["username", "reach", "subscribers"]].to_dict("records")
+    client.table("stats").insert(data).execute()
 
 
 def display_popular_posts(msgs):
@@ -232,9 +241,7 @@ def display_popular_posts(msgs):
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
-        how_many_per_channel = st.number_input(
-            "Постов с канала", 1, value=5
-        )
+        how_many_per_channel = st.number_input("Постов с канала", 1, value=5)
     with col2:
         min_days = st.number_input("Не свежее скольки дней", 0, value=1)
     with col3:
