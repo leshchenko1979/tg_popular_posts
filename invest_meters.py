@@ -108,7 +108,7 @@ def display_historical_stats():
     )
     del last_stats["created_at"]
 
-    calc_reach_percent_and_votes(last_stats)
+    last_stats = calc_reach_percent_and_votes(last_stats)
 
     display_stats(last_stats)
 
@@ -165,7 +165,7 @@ def collect_fresh_stats_and_posts():
 
     calc_msg_popularity(msgs_df)
     stats = collect_stats_to_single_df(msgs_df, channels_df)
-    calc_reach_percent_and_votes(stats)
+    stats = calc_reach_percent_and_votes(stats)
 
     save_stats(stats)
     st.session_state["msgs_df"] = msgs_df
