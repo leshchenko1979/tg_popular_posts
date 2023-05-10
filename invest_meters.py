@@ -27,6 +27,7 @@ channels: set[str]
 loaded_stats: pd.DataFrame
 client: supabase.Client
 
+
 def main():
     st.title("Подборка статистики для Инвеcт-мэтров")
 
@@ -76,6 +77,7 @@ def display_historical_stats():
         .stack()
         .reset_index()
         .rename(columns={"level_2": "metric", 0: "value"})
+        .sort_values("created_at")
     )
 
     fig = px.line(
@@ -86,6 +88,14 @@ def display_historical_stats():
         facet_row_spacing=0.1,
         color="username",
         labels={"created_at": "Дата"},
+        category_orders={
+            "metric": ["reach", "subscribers"],
+            "username": loaded_stats[
+                loaded_stats.created_at == loaded_stats.created_at.max()
+            ]
+            .sort_values("reach", ascending=False)
+            .username.tolist(),
+        },
     )
     fig.update_yaxes(matches=None)
     fig.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
