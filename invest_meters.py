@@ -138,6 +138,11 @@ def display_stats(stats):
     with col2:
         st.metric("Всего подписчиков", stats.subscribers.sum())
 
+    stats = (
+        stats[["username", "reach", "subscribers", "reach_percent_of_mean", "votes"]]
+        .set_index("username", drop=True)
+        .sort_values("reach", ascending=False)
+    )
     stats
 
 
