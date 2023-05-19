@@ -147,11 +147,15 @@ def display_stats(stats):
 
 
 def display_fresh_stats_and_posts():
+    max_datetime = loaded_stats.created_at.max()
+    delta = dt.datetime.now(tz=dt.timezone.utc) - max_datetime
+    needs_updating = delta > dt.timedelta(hours=12)
+
     if "stats" in st.session_state:
         msgs_df = st.session_state["msgs_df"]
         stats = st.session_state["stats"]
 
-    elif st.button("Собрать свежую статистику", type="primary"):
+    elif st.button("Собрать свежую статистику", type="primary") or needs_updating:
         msgs_df, stats = collect_fresh_stats_and_posts()
 
     else:
