@@ -72,35 +72,7 @@ def load_data():
 
 
 def display_historical_stats():
-    chart_df = (
-        loaded_stats.set_index(["created_at", "username"])
-        .stack()
-        .reset_index()
-        .rename(columns={"level_2": "metric", 0: "value"})
-        .sort_values("created_at")
-    )
-
-    fig = px.line(
-        chart_df,
-        x="created_at",
-        y="value",
-        facet_row="metric",
-        facet_row_spacing=0.1,
-        color="username",
-        labels={"created_at": "Дата"},
-        category_orders={
-            "metric": ["reach", "subscribers"],
-            "username": loaded_stats[
-                loaded_stats.created_at == loaded_stats.created_at.max()
-            ]
-            .sort_values("reach", ascending=False)
-            .username.tolist(),
-        },
-    )
-    fig.update_yaxes(matches=None)
-    fig.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
-    fig.update_layout(plot_bgcolor="#202020")
-    st.plotly_chart(fig, use_container_width=True)
+    display_historical_chart()
 
     max_datetime: dt.datetime = loaded_stats.created_at.max()
     last_stats = loaded_stats[loaded_stats.created_at == max_datetime].sort_values(
@@ -119,6 +91,42 @@ def display_historical_stats():
         st.caption(f"Собрана {delta.days} дней назад")
     else:
         st.caption(f"Собрана {delta.seconds // 3600} часов назад")
+
+
+def display_historical_chart():
+    chart_df = (
+        loaded_stats.set_index(["created_at", "username"])
+        .stack()
+        .reset_index()
+        .rename(columns={"level_2": "metric", 0: "value"})
+        .sort_values("created_at")
+    )
+
+    category_orders = {
+        "metric": ["reach", "subscribers"],
+        "username": loaded_stats[
+            loaded_stats.created_at == loaded_stats.created_at.max()
+        ]
+        .sort_values("reach", ascending=False)
+        .username.tolist(),
+    }
+
+    fig = px.line(
+        chart_df,
+        x="created_at",
+        y="value",
+        facet_row="metric",
+        facet_row_spacing=0.1,
+        color="username",
+        labels={"created_at": "Дата"},
+        category_orders=category_orders,
+    )
+
+    fig.update_yaxes(matches=None)
+    fig.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
+    fig.update_layout(plot_bgcolor="#202020")
+
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def calc_reach_percent_and_votes(stats: pd.DataFrame):
