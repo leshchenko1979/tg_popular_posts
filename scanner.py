@@ -15,7 +15,9 @@ from chat_cache import ChatCache, ChatCacheItem
 class Scanner:
     """Выполняет запросы к телеграму, используя коллекцию аккаунтов."""
 
-    def __init__(self, /, fs: AbstractFileSystem, phones: list[str] = None, chat_cache=True):
+    def __init__(
+        self, /, fs: AbstractFileSystem, phones: list[str] = None, chat_cache=True
+    ):
         self.fs = fs
         self.phones = phones or [
             item.split(".session")[0] for item in fs.glob("*.session")
@@ -106,7 +108,7 @@ class Scanner:
             "get_chat_history",
             chat_id,
             limit,
-            breaking_trigger=lambda msg: msg.date < min_date,
+            breaking_trigger=lambda msg: msg.date < min_date if min_date else False,
         ):
             yield msg
 

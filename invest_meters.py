@@ -1,7 +1,6 @@
 import asyncio
 import datetime as dt
 import os
-from collections import namedtuple
 
 import pandas as pd
 import plotly.express as px
@@ -11,16 +10,17 @@ from stqdm import stqdm as tqdm
 
 import load_env
 import supabasefs
+from scanner import Scanner
+from stats_collector import StatsCollector
 
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
-from scanner import Scanner
 
-LIMIT_HISTORY = dt.timedelta(days=30)  # насколько лезть вглубь чата
-
-Msg = namedtuple("Message", "username link reach reactions datetime text")
-Channel = namedtuple("Channel", "username subscribers")
+HISTORY_LIMIT_DAYS = 30
+MIN_DATE = (
+    dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=HISTORY_LIMIT_DAYS)
+).replace(tzinfo=None)
 
 scanner: Scanner
 channels: set[str]
@@ -174,87 +174,20 @@ def display_fresh_stats_and_posts():
 
 
 def collect_fresh_stats_and_posts():
+    collector = StatsCollector(scanner, MIN_DATE)
+
     with st.spinner("Собираем статистику, можно пойти покурить..."):
-        msg_stats, channel_stats = asyncio.run(collect_all_stats(channels))
+        with tqdm(total=len(channels)) as pbar:
+            asyncio.run(collector.collect_all_stats(channels, pbar))
 
-    msgs_df = pd.DataFrame(msg_stats)
-    channels_df = pd.DataFrame(channel_stats)
+    save_stats(collector.stats)
 
-    calc_msg_popularity(msgs_df)
-    stats = collect_stats_to_single_df(msgs_df, channels_df)
-    stats = calc_reach_percent_and_votes(stats)
+    stats = calc_reach_percent_and_votes(collector.stats)
 
-    save_stats(stats)
-    st.session_state["msgs_df"] = msgs_df
+    st.session_state["msgs_df"] = collector.msgs_df
     st.session_state["stats"] = stats
 
-    return [msgs_df, stats]
-
-
-async def collect_all_stats(channels) -> tuple[list[Msg], list[Channel]]:
-    msg_stats = []
-    channel_stats = []
-
-    with tqdm(total=len(channels)) as pbar:
-        async with scanner.session(pbar):
-            for channel in channels:
-                pbar.set_postfix_str(channel)
-
-                msg_stats.extend(await collect_msg_stats(channel))
-                channel_stats.append(await collect_channel_stats(channel))
-
-                pbar.update()
-
-    return msg_stats, channel_stats
-
-
-async def collect_msg_stats(channel) -> Msg:
-    msgs = []
-
-    async for msg in scanner.get_chat_history(
-        channel, min_date=dt.datetime.now() - LIMIT_HISTORY
-    ):
-        reactions = (
-            (
-                sum(reaction.count for reaction in msg.reactions.reactions)
-                if msg.reactions
-                else 0
-            )
-            + (msg.forwards or 0)
-            + await scanner.get_discussion_replies_count(channel, msg.id)
-        )
-        msgs.append(
-            Msg(
-                username=channel,
-                link=msg.link,
-                reach=msg.views or 0,
-                reactions=reactions,
-                datetime=msg.date,
-                text=msg.text or msg.caption,
-            )
-        )
-
-    return msgs
-
-
-async def collect_channel_stats(channel) -> Channel:
-    chat = await scanner.get_chat(channel)
-
-    return Channel(username=channel, subscribers=chat.members_count)
-
-
-def calc_msg_popularity(msg_df: pd.DataFrame):
-    msg_df["popularity"] = msg_df.reactions / msg_df.reach
-
-    return msg_df
-
-
-def collect_stats_to_single_df(msg_df: pd.DataFrame, channel_df: pd.DataFrame):
-    stats = msg_df.groupby("username").agg({"reach": "mean"}).astype(int)
-    stats["subscribers"] = channel_df.set_index("username")["subscribers"]
-    stats.reset_index(inplace=True)
-
-    return stats
+    return [collector.msgs_df, stats]
 
 
 def save_stats(stats: pd.DataFrame):
@@ -272,7 +205,9 @@ def display_popular_posts(msgs):
     with col2:
         min_days = st.number_input("Не свежее скольки дней", 0, value=1)
     with col3:
-        max_days = st.number_input("Не старше скольки дней", 1, value=8)
+        max_days = st.number_input(
+            "Не старше скольки дней", min_value=1, max_value=HISTORY_LIMIT_DAYS, value=8
+        )
     with col4:
         sort_by = st.radio("Сортировать по", ["популярности", "каналу"])
 
@@ -297,21 +232,12 @@ def display_popular_posts(msgs):
     ].head(how_many_per_channel)
 
     popular_posts["link"] = popular_posts["link"].apply(make_clickable)
-    popular_posts["text"] = popular_posts["text"].apply(shorten)
 
     st.write(popular_posts.to_html(escape=False), unsafe_allow_html=True)
 
 
 def make_clickable(url):
     return f'<a target="_blank" href="{url}">ссылка</a>'
-
-
-def shorten(text, max_length=200):
-    return (
-        text[:max_length] + "..."
-        if isinstance(text, str) and len(text) > max_length
-        else text
-    )
 
 
 try:
