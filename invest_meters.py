@@ -10,12 +10,13 @@ from stqdm import stqdm as tqdm
 
 import load_env
 import supabasefs
-from scanner import Scanner
-from stats_collector import StatsCollector
 
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
+from scanner import Scanner
+from stats_collector import StatsCollector
+from stats_db import StatsDatabase
 
 HISTORY_LIMIT_DAYS = 30
 MIN_DATE = (
@@ -23,25 +24,24 @@ MIN_DATE = (
 ).replace(tzinfo=None)
 
 scanner: Scanner
-channels: set[str]
-loaded_stats: pd.DataFrame
 client: supabase.Client
+stats_db: StatsDatabase
 
 
 def main():
     st.title("Подборка статистики для Инвеcт-мэтров")
 
-    global scanner, channels, loaded_stats, client
+    global scanner, client, stats_db
 
     scanner, client = prepare_resources()
-    channels, loaded_stats = load_data()
+    load_data()
 
     st.subheader("Каналы")
-    channels
+    stats_db.channels
 
     st.subheader("Статистика охватов и голоса")
 
-    if not loaded_stats.empty:
+    if not stats_db.stats_df.empty:
         display_historical_stats()
 
     display_fresh_stats_and_posts()
@@ -60,42 +60,29 @@ def prepare_resources():
 
 @st.cache_data(show_spinner="Загружаем историческую статистику", ttl=60)
 def load_data():
-    list_of_dicts = client.table("channels").select("username").execute().data
-    channels = {item["username"] for item in list_of_dicts}
-
-    loaded_stats = pd.DataFrame(client.table("stats").select("*").execute().data)
-    loaded_stats["created_at"] = pd.to_datetime(
-        loaded_stats["created_at"], utc=True
-    ).dt.tz_convert("Europe/Moscow")
-
-    return [channels, loaded_stats]
+    global stats_db
+    stats_db = StatsDatabase(client)
+    stats_db.load_data()
 
 
 def display_historical_stats():
     display_historical_chart()
 
-    max_datetime: dt.datetime = loaded_stats.created_at.max()
-    last_stats = loaded_stats[loaded_stats.created_at == max_datetime].sort_values(
-        "reach", ascending=False
-    )
-    del last_stats["created_at"]
-
-    last_stats = calc_reach_percent_and_votes(last_stats)
+    last_stats = calc_reach_percent_and_votes(stats_db.last_stats_df)
 
     display_stats(last_stats)
 
-    delta = dt.datetime.now(tz=dt.timezone.utc) - max_datetime
-    if delta > dt.timedelta(days=30):
-        st.caption(f"Собрано {max_datetime.date()}")
-    elif delta > dt.timedelta(days=1):
-        st.caption(f"Собрана {delta.days} дней назад")
+    if stats_db.delta > dt.timedelta(days=30):
+        st.caption(f"Собрано {stats_db.max_datetime.date()}")
+    elif stats_db.delta > dt.timedelta(days=1):
+        st.caption(f"Собрана {stats_db.delta.days} дней назад")
     else:
-        st.caption(f"Собрана {delta.seconds // 3600} часов назад")
+        st.caption(f"Собрана {stats_db.delta.seconds // 3600} часов назад")
 
 
 def display_historical_chart():
     chart_df = (
-        loaded_stats.set_index(["created_at", "username"])
+        stats_db.stats_df.set_index(["created_at", "username"])
         .stack()
         .reset_index()
         .rename(columns={"level_2": "metric", 0: "value"})
@@ -104,11 +91,9 @@ def display_historical_chart():
 
     category_orders = {
         "metric": ["reach", "subscribers"],
-        "username": loaded_stats[
-            loaded_stats.created_at == loaded_stats.created_at.max()
-        ]
-        .sort_values("reach", ascending=False)
-        .username.tolist(),
+        "username": stats_db.last_stats_df.sort_values(
+            "reach", ascending=False
+        ).username.tolist(),
     }
 
     fig = px.line(
@@ -155,9 +140,7 @@ def display_stats(stats):
 
 
 def display_fresh_stats_and_posts():
-    max_datetime = loaded_stats.created_at.max()
-    delta = dt.datetime.now(tz=dt.timezone.utc) - max_datetime
-    needs_updating = delta > dt.timedelta(hours=12)
+    needs_updating = stats_db.delta > dt.timedelta(hours=12)
 
     if "stats" in st.session_state:
         msgs_df = st.session_state["msgs_df"]
@@ -177,10 +160,10 @@ def collect_fresh_stats_and_posts():
     collector = StatsCollector(scanner, MIN_DATE)
 
     with st.spinner("Собираем статистику, можно пойти покурить..."):
-        with tqdm(total=len(channels)) as pbar:
-            asyncio.run(collector.collect_all_stats(channels, pbar))
+        with tqdm(total=len(stats_db.channels)) as pbar:
+            asyncio.run(collector.collect_all_stats(stats_db.channels, pbar))
 
-    save_stats(collector.stats)
+    stats_db.save_new_stats_to_db(collector.stats)
 
     stats = calc_reach_percent_and_votes(collector.stats)
 
@@ -188,11 +171,6 @@ def collect_fresh_stats_and_posts():
     st.session_state["stats"] = stats
 
     return [collector.msgs_df, stats]
-
-
-def save_stats(stats: pd.DataFrame):
-    data = stats[["username", "reach", "subscribers"]].to_dict("records")
-    client.table("stats").insert(data).execute()
 
 
 def display_popular_posts(msgs):
