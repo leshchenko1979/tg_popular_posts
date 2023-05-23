@@ -53,24 +53,24 @@ class Scanner:
         if self.fs.exists(SESSION_LOCK):
             raise RuntimeError("Sessions are already in use")
 
-        self.fs.touch(SESSION_LOCK)
-
-        await self.start_sessions()
-
         self.pbar = pbar
 
         try:
+            await self.start_sessions()
+
+            self.fs.touch(SESSION_LOCK)
+
             yield
 
         finally:
             self.pbar = None
 
+            self.fs.rm(SESSION_LOCK)
+
             await self.close_sessions()
 
             if self.chat_cache:
                 self.chat_cache.save()
-
-            self.fs.rm(SESSION_LOCK)
 
     async def get_chat(self, chat_id) -> pyrogram.types.Chat:
         if not self.chat_cache:
