@@ -2,9 +2,6 @@ import asyncio
 import datetime as dt
 import os
 
-loop = asyncio.new_event_loop()
-asyncio.set_event_loop(loop)
-
 import pandas as pd
 import plotly.express as px
 import streamlit as st
@@ -14,21 +11,12 @@ from stqdm import stqdm as tqdm
 import load_env
 import supabasefs
 
-from scanner import Scanner
-from stats_collector import StatsCollector
-from stats_db import StatsDatabase
-
 HISTORY_LIMIT_DAYS = 30
 MIN_DATE = (
     dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=HISTORY_LIMIT_DAYS)
 ).replace(tzinfo=None)
 
-scanner: Scanner
-client: supabase.Client
-stats_db: StatsDatabase
-
-
-def main():
+async def main():
     st.title("Подборка статистики для Инвеcт-мэтров")
 
     global scanner, client, stats_db
@@ -44,11 +32,13 @@ def main():
     if not stats_db.stats_df.empty:
         display_historical_stats()
 
-    display_fresh_stats_and_posts()
+    await display_fresh_stats_and_posts()
 
 
 @st.cache_resource(show_spinner="Подготовка...")
 def prepare_resources():
+    from scanner import Scanner
+
     client = supabase.create_client(
         os.environ["SUPABASE_URL"], os.environ["SUPABASE_KEY"]
     )
@@ -60,6 +50,8 @@ def prepare_resources():
 
 @st.cache_data(show_spinner="Загружаем историческую статистику", ttl=60)
 def load_data():
+    from stats_db import StatsDatabase
+
     global stats_db
     stats_db = StatsDatabase(client)
     stats_db.load_data()
@@ -139,7 +131,7 @@ def display_stats(stats):
     stats
 
 
-def display_fresh_stats_and_posts():
+async def display_fresh_stats_and_posts():
     needs_updating = stats_db.delta > dt.timedelta(hours=12)
 
     if "stats" in st.session_state:
@@ -147,7 +139,7 @@ def display_fresh_stats_and_posts():
         stats = st.session_state["stats"]
 
     elif st.button("Собрать свежую статистику", type="primary") or needs_updating:
-        msgs_df, stats = collect_fresh_stats_and_posts()
+        msgs_df, stats = await collect_fresh_stats_and_posts()
 
     else:
         st.stop()
@@ -156,12 +148,14 @@ def display_fresh_stats_and_posts():
     display_popular_posts(msgs_df)
 
 
-def collect_fresh_stats_and_posts():
+async def collect_fresh_stats_and_posts():
+    from stats_collector import StatsCollector
+
     collector = StatsCollector(scanner, MIN_DATE)
 
     with st.spinner("Собираем статистику, можно пойти покурить..."):
         with tqdm(total=len(stats_db.channels)) as pbar:
-            asyncio.run(collector.collect_all_stats(stats_db.channels, pbar))
+            await collector.collect_all_stats(stats_db.channels, pbar)
 
     stats_db.save_new_stats_to_db(collector.stats)
 
@@ -219,6 +213,6 @@ def make_clickable(url):
 
 
 try:
-    main()
+    asyncio.run(main())
 except RuntimeError:
     st.error("Кто-то другой использует приложение. Попробуйте через пару минут.")
