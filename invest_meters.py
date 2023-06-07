@@ -19,17 +19,17 @@ MIN_DATE = (
 async def main():
     st.title("Подборка статистики для Инвеcт-мэтров")
 
-    global scanner, client, stats_db
+    global scanner, client, db
 
     scanner, client = prepare_resources()
     load_data()
 
     st.subheader("Каналы")
-    stats_db.channels
+    db.channels
 
     st.subheader("Статистика охватов и голоса")
 
-    if not stats_db.stats_df.empty:
+    if not db.stats_df.empty:
         display_historical_stats()
 
     await display_fresh_stats_and_posts()
@@ -52,29 +52,29 @@ def prepare_resources():
 def load_data():
     from stats_db import StatsDatabase
 
-    global stats_db
-    stats_db = StatsDatabase(client)
-    stats_db.load_data()
+    global db
+    db = StatsDatabase(client)
+    db.load_data()
 
 
 def display_historical_stats():
     display_historical_chart()
 
-    last_stats = calc_reach_percent_and_votes(stats_db.last_stats_df)
+    last_stats = calc_reach_percent_and_votes(db.last_stats_df)
 
     display_stats(last_stats)
 
-    if stats_db.delta > dt.timedelta(days=30):
-        st.caption(f"Собрано {stats_db.max_datetime.date()}")
-    elif stats_db.delta > dt.timedelta(days=1):
-        st.caption(f"Собрана {stats_db.delta.days} дней назад")
+    if db.delta > dt.timedelta(days=30):
+        st.caption(f"Собрано {db.max_datetime.date()}")
+    elif db.delta > dt.timedelta(days=1):
+        st.caption(f"Собрана {db.delta.days} дней назад")
     else:
-        st.caption(f"Собрана {stats_db.delta.seconds // 3600} часов назад")
+        st.caption(f"Собрана {db.delta.seconds // 3600} часов назад")
 
 
 def display_historical_chart():
     chart_df = (
-        stats_db.stats_df.set_index(["created_at", "username"])
+        db.stats_df.set_index(["created_at", "username"])
         .stack()
         .reset_index()
         .rename(columns={"level_2": "metric", 0: "value"})
@@ -83,7 +83,7 @@ def display_historical_chart():
 
     category_orders = {
         "metric": ["reach", "subscribers"],
-        "username": stats_db.last_stats_df.sort_values(
+        "username": db.last_stats_df.sort_values(
             "reach", ascending=False
         ).username.tolist(),
     }
@@ -132,7 +132,7 @@ def display_stats(stats):
 
 
 async def display_fresh_stats_and_posts():
-    needs_updating = stats_db.delta > dt.timedelta(hours=12)
+    needs_updating = db.delta > dt.timedelta(hours=12)
 
     if "stats" in st.session_state:
         msgs_df = st.session_state["msgs_df"]
@@ -154,10 +154,10 @@ async def collect_fresh_stats_and_posts():
     collector = StatsCollector(scanner, MIN_DATE)
 
     with st.spinner("Собираем статистику, можно пойти покурить..."):
-        with tqdm(total=len(stats_db.channels)) as pbar:
-            await collector.collect_all_stats(stats_db.channels, pbar)
+        with tqdm(total=len(db.channels)) as pbar:
+            await collector.collect_all_stats(db.channels, pbar)
 
-    stats_db.save_new_stats_to_db(collector.stats)
+    db.save_new_stats_to_db(collector.stats)
 
     stats = calc_reach_percent_and_votes(collector.stats)
 
