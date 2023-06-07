@@ -22,7 +22,7 @@ async def main():
     global scanner, client, db
 
     scanner, client = prepare_resources()
-    load_data()
+    db = load_data()
 
     st.subheader("Каналы")
     db.channels
@@ -48,13 +48,15 @@ def prepare_resources():
     return [scanner, client]
 
 
-@st.cache_data(show_spinner="Загружаем историческую статистику", ttl=60)
+@st.cache_resource(show_spinner="Загружаем историческую статистику", ttl=60)
 def load_data():
     from stats_db import StatsDatabase
 
     global db
     db = StatsDatabase(client)
     db.load_data()
+
+    return db
 
 
 def display_historical_stats():
