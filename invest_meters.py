@@ -2,6 +2,9 @@ import asyncio
 import datetime as dt
 import os
 
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
+
 import pandas as pd
 import plotly.express as px
 import streamlit as st
@@ -10,9 +13,6 @@ from stqdm import stqdm as tqdm
 
 import load_env
 import supabasefs
-
-loop = asyncio.new_event_loop()
-asyncio.set_event_loop(loop)
 
 from scanner import Scanner
 from stats_collector import StatsCollector
